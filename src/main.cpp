@@ -38,6 +38,123 @@ extern "C" {
 ADC_MODE(ADC_VCC); //vcc read
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// Draw primitives implemented from scratch so they remain usable if
+// the concrete display class changes. They only require a display
+// object that exposes drawPixel(x,y,color) and width()/height()/display().
+
+static inline void drawPixelSafe(Adafruit_SSD1306 &disp, int16_t x, int16_t y, uint16_t color) {
+  if (x < 0 || y < 0) return;
+  if (x >= disp.width() || y >= disp.height()) return;
+  disp.drawPixel(x, y, color);
+}
+
+// Rectangle: outline or filled.
+// x,y = top-left corner, w,h = size. If showNow is true, disp.display() is called.
+void drawRectManual(Adafruit_SSD1306 &disp, int16_t x, int16_t y, int16_t w, int16_t h,
+                    uint16_t color, bool filled = false, bool showNow = false) {
+  if (w <= 0 || h <= 0) return;
+
+  // Clip coordinates to display bounds (basic clipping)
+  int16_t maxX = disp.width()  - 1;
+  int16_t maxY = disp.height() - 1;
+
+  int16_t xEnd = x + w - 1;
+  int16_t yEnd = y + h - 1;
+
+  if (!filled) {
+    // top and bottom
+    for (int16_t xi = x; xi <= xEnd; ++xi) {
+      drawPixelSafe(disp, xi, y, color);
+      drawPixelSafe(disp, xi, yEnd, color);
+    }
+    // left and right
+    for (int16_t yi = y; yi <= yEnd; ++yi) {
+      drawPixelSafe(disp, x, yi, color);
+      drawPixelSafe(disp, xEnd, yi, color);
+    }
+  } else {
+    // filled rectangle
+    for (int16_t yi = y; yi <= yEnd; ++yi) {
+      for (int16_t xi = x; xi <= xEnd; ++xi) {
+        drawPixelSafe(disp, xi, yi, color);
+      }
+    }
+  }
+
+  if (showNow) disp.display();
+}
+
+// Midpoint circle algorithm (outline or filled).
+// cx,cy = center, r = radius. If showNow is true, disp.display() is called.
+void drawCircleManual(Adafruit_SSD1306 &disp, int16_t cx, int16_t cy, int16_t r,
+                      uint16_t color, bool filled = false, bool showNow = false) {
+  if (r <= 0) return;
+
+  int16_t x = 0;
+  int16_t y = r;
+  int16_t d = 1 - r;
+
+  auto plotCirclePoints = [&](int16_t px, int16_t py) {
+    // 8-way symmetry
+    drawPixelSafe(disp,  cx + px, cy + py, color);
+    drawPixelSafe(disp,  cx - px, cy + py, color);
+    drawPixelSafe(disp,  cx + px, cy - py, color);
+    drawPixelSafe(disp,  cx - px, cy - py, color);
+    drawPixelSafe(disp,  cx + py, cy + px, color);
+    drawPixelSafe(disp,  cx - py, cy + px, color);
+    drawPixelSafe(disp,  cx + py, cy - px, color);
+    drawPixelSafe(disp,  cx - py, cy - px, color);
+  };
+
+  if (!filled) {
+    // Outline only
+    plotCirclePoints(x, y);
+    while (x < y) {
+      ++x;
+      if (d < 0) {
+        d += 2 * x + 1;
+      } else {
+        --y;
+        d += 2 * (x - y) + 1;
+      }
+      plotCirclePoints(x, y);
+    }
+  } else {
+    // Filled circle: draw horizontal spans between symmetric points
+    // Draw center line first
+    for (int16_t xi = cx - r; xi <= cx + r; ++xi) {
+      drawPixelSafe(disp, xi, cy, color);
+    }
+
+    while (x < y) {
+      ++x;
+      if (d < 0) {
+        d += 2 * x + 1;
+      } else {
+        --y;
+        d += 2 * (x - y) + 1;
+      }
+      // For each pair of symmetric y rows, draw horizontal spans
+      int16_t left1  = cx - x;
+      int16_t right1 = cx + x;
+      int16_t left2  = cx - y;
+      int16_t right2 = cx + y;
+
+      for (int16_t xi = left1; xi <= right1; ++xi) {
+        drawPixelSafe(disp, xi, cy + y, color);
+        drawPixelSafe(disp, xi, cy - y, color);
+      }
+      for (int16_t xi = left2; xi <= right2; ++xi) {
+        drawPixelSafe(disp, xi, cy + x, color);
+        drawPixelSafe(disp, xi, cy - x, color);
+      }
+    }
+  }
+
+  if (showNow) disp.display();
+}
+
 const char * essids[10];
 const char * passwords[10];
 const byte PIN_CLK = 12;   // define CLK pin (any digital pin)
@@ -57,7 +174,6 @@ void ledblink(int led)
   digitalWrite(led, LOW);
 #endif
 }
-
 
 void printEncryptionType(int thisType)
 {
