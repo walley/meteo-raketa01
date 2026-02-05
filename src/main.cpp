@@ -1,4 +1,3 @@
-
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <ESP8266WiFi.h>
@@ -161,13 +160,47 @@ int send_data(char * data)
   Serial.printf("[HTTP] http code: %d\n", http_code);
 
   if (http_code > 0) {
-    /*   if (http_code == HTTP_CODE_OK) {
-         String payload = http.getString();
-         Serial.println(payload);
-       }
-    */
+    // Handle successful connection (non-negative returned code is an HTTP status or similar)
+    // Print and handle common HTTP statuses:
+    if (http_code == HTTP_CODE_OK || http_code == HTTP_CODE_CREATED) {
+      // 200 OK or 201 Created - read the response payload
+      String payload = http.getString();
+      Serial.println("[HTTP] Success payload:");
+      Serial.println(payload);
+      ledblink(GREENLED);
+    } else if (http_code >= 300 && http_code < 400) {
+      Serial.println("[HTTP] Redirection");
+      // Optionally you could inspect "Location" header here
+      ledblink(BLUELED);
+    } else if (http_code >= 400 && http_code < 500) {
+      Serial.println("[HTTP] Client error");
+      // Print server response if available
+      String payload = http.getString();
+      if (payload.length()) {
+        Serial.println("[HTTP] Error payload:");
+        Serial.println(payload);
+      }
+      ledblink(REDLED);
+    } else if (http_code >= 500) {
+      Serial.println("[HTTP] Server error");
+      String payload = http.getString();
+      if (payload.length()) {
+        Serial.println("[HTTP] Error payload:");
+        Serial.println(payload);
+      }
+      ledblink(REDLED);
+    } else {
+      // Other HTTP codes
+      String payload = http.getString();
+      if (payload.length()) {
+        Serial.println("[HTTP] Response payload:");
+        Serial.println(payload);
+      }
+    }
   } else {
+    // http_code <= 0 indicates a connection/transport error
     Serial.printf("[HTTP] failed, error: %s\n", http.errorToString(http_code).c_str());
+    ledblink(REDLED);
   }
 
   http.end();
