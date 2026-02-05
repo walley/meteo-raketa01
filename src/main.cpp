@@ -222,12 +222,12 @@ void list_networks()
   // print the network number and name for each network found:
   for (int thisNet = 0; thisNet < numSsid; thisNet++) {
     Serial.print(thisNet);
-    Serial.print(") " );
+    Serial.print(") ");
     Serial.print(WiFi.SSID(thisNet));
-    Serial.print("\tSignal: " );
+    Serial.print("\tSignal: ");
     Serial.print(WiFi.RSSI(thisNet));
     Serial.print(" dBm");
-    Serial.print("\tEncryption: " );
+    Serial.print("\tEncryption: ");
     printEncryptionType(WiFi.encryptionType(thisNet));
   }
 }
@@ -370,7 +370,7 @@ char * get_wifi_status(int m)
 // ----- CONFIG AP / HTTP SERVER HANDLERS -----
 
 // Simple HTML form served to configure one SSID/password (it writes into essids[0]/passwords[0])
-const char CONFIG_FORM[] PROGMEM = R)rawliteral(
+const char CONFIG_FORM[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
   <head><meta charset="utf-8"><title>Configure WiFi</title></head>
@@ -385,4 +385,327 @@ const char CONFIG_FORM[] PROGMEM = R)rawliteral(
     </form>
   </body>
 </html>
-)rawliteral
+)rawliteral";
+
+void handleRoot() {
+  configServer.send(200, "text/html", CONFIG_FORM);
+}
+
+void handleSave() {
+  String ssid = configServer.arg("essid");
+  String pass = configServer.arg("password");
+
+  Serial.print("Received SSID: ");
+  Serial.println(ssid);
+  Serial.print("Received PASS: ");
+  Serial.println(pass ? pass : "");
+
+  // Store into essids[0] and passwords[0] (replace existing pointer)
+  // Allocate memory and copy strings so pointer remains valid.
+  char *ess_copy = (char*)malloc(ssid.length() + 1);
+  if (ess_copy != NULL) {
+    strcpy(ess_copy, ssid.c_str());
+    essids[0] = ess_copy;
+  } else {
+    Serial.println("Failed to allocate memory for essid");
+  }
+
+  char *pass_copy = (char*)malloc(pass.length() + 1);
+  if (pass_copy != NULL) {
+    strcpy(pass_copy, pass.c_str());
+    passwords[0] = pass_copy;
+  } else {
+    Serial.println("Failed to allocate memory for password");
+  }
+
+  config_saved = true;
+
+  String response = "<html><body><h2>Saved. Attempting to connect...</h2>";
+  response += "<p>SSID: " + ssid + "</p>";
+  response += "<p>You can close this page.</p></body></html>";
+  configServer.send(200, "text/html", response);
+}
+
+// Starts an AP, runs a small HTTP server that accepts one SSID/password pair,
+// writes them into essids[0]/passwords[0], then stops the AP, switches to STA and calls find_wifi().
+void startConfigPortal() {
+  Serial.println("Starting Config AP (MeteoConfigAP)...");
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP("MeteoConfigAP"); // SSID of the AP; no password to simplify client connection
+  IPAddress apIP = WiFi.softAPIP();
+  Serial.print("AP IP: ");
+  Serial.println(apIP);
+
+  config_saved = false;
+
+  configServer.on("/", HTTP_GET, handleRoot);
+  configServer.on("/save", HTTP_POST, handleSave);
+  configServer.begin();
+  Serial.println("Config server started, open http://192.168.4.1/");
+
+  // Block here and handle clients until user submits form (config_saved is set).
+  unsigned long start = millis();
+  while (!config_saved) {
+    configServer.handleClient();
+    yield();
+    // optional timeout: if needed, break after N seconds
+    // if (millis() - start > 5 * 60 * 1000) break; // 5 minutes timeout
+  }
+
+  // Stop the config server and AP
+  configServer.close();
+  configServer.stop();
+  WiFi.softAPdisconnect(true);
+  Serial.println("Config saved, switching back to STA mode...");
+
+  WiFi.mode(WIFI_STA);
+  delay(100);
+
+  // Try to connect with new credentials
+  find_wifi();
+}
+
+// ----- END CONFIG AP / HTTP SERVER HANDLERS -----
+
+void find_wifi()
+{
+  int i,ii;
+
+  for (i = 0; i < 4; i++) {
+    Serial.print("trying ");
+    Serial.print(essids[i]);
+    Serial.print(":");
+    Serial.println(passwords[i]);
+
+    WiFi.begin(essids[i], passwords[i]);
+
+    for (ii = 0; ii < 100; ii++) {
+      Serial.println(get_wifi_status(WiFi.status()));
+      delay(20);
+    }
+
+    if ((WiFi.waitForConnectResult() == WL_CONNECTED)) {
+      Serial.println("FOUND");
+      return;
+    } else {
+      Serial.println("NOPE");
+      WiFi.disconnect();
+    }
+  }
+
+  Serial.println("couldn't find a shit");
+}
+
+void turn_off_pins()
+{
+  //turnOff(10);
+  //turnOff(9);
+  //turnOff(16);
+  //turnOff(5);
+  //turnOff(4);
+  //turnOff(0);
+  //turnOff(2);
+  //turnOff(14);
+  //turnOff(12);
+  //turnOff(13);
+  //turnOff(15);
+  //turnOff(3);
+  //turnOff(1);
+}
+
+
+void infoled_setup()
+{
+  pinMode(GREENLED, OUTPUT);
+  pinMode(BLUELED, OUTPUT);
+  pinMode(REDLED, OUTPUT);
+
+  digitalWrite(GREENLED, LOW);
+  digitalWrite(REDLED, LOW);
+  digitalWrite(BLUELED, LOW);
+}
+
+void wifi_essids_setup()
+{
+  essids[0] = "wa-v101f";
+  essids[1] = "HZSOL-WRK";
+  essids[2] = "waredmi";
+  essids[3] = "3GWiFi_55357C";
+
+  passwords[0] = "aaaaaaaaa";
+  passwords[1] = "HZSOL231wpa";
+  passwords[2] = "aaaaaaaaa";
+  passwords[3] = "1245678";
+}
+
+void setup_display()
+{
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D for 128x64
+    Serial.println(F("SSD1306 allocation failed"));
+  }
+
+  display_width = display.width();
+  display_height = display.height();
+}
+
+void setup_sensors()
+{
+  sensors.begin();
+}
+
+float get_sensors()
+{
+  float t;
+
+  sensors.requestTemperatures();
+  t = sensors.getTempCByIndex(0);
+  Serial.println(t);
+  return t;
+}
+
+void show_sensors()
+{
+  float t;
+  t = get_sensors();
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.setTextSize(1);
+  display.print("temperature");
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 25);
+  display.setTextSize(3);
+  display.setTextColor(SSD1306_WHITE);
+  display.print(t);
+  display.print((char)247);
+  display.print("C");
+  display.display();
+}
+
+void do_stuff()
+{
+  char tstr[20];
+  float t;
+  int tt;
+  char data[50];
+
+  say("----");
+
+  float vdd = ESP.getVcc() / 1000.0;
+  dtostrf(vdd, 2, 2, tstr);
+  say("voltage:");
+  say(tstr);
+
+//  Serial.println(readvdd33());
+
+  delay(500);
+
+  say("----");
+  say("temperature");
+
+  sensors.requestTemperatures();
+  t = sensors.getTempCByIndex(0);
+//  dtostrf(t, 2, 2, tstr);
+//  say(tstr);
+
+  //display.setColonOn(true);
+  byte  rawData;
+  tt = t * 100;
+  //display.print(tt);
+  // display degree symbol on position 3 plus set lower colon
+  rawData = B11100011;
+  //display.printRaw(rawData, 3);
+  delay(1000);
+  //display.setColonOn(false);
+
+  create_line("x","meteotest", data, t);
+  Serial.println(data);
+
+  if ((WiFi.status() == WL_CONNECTED)) {
+    //send_data(data);
+    Serial.print("connected to ");
+    Serial.println(WiFi.SSID());
+    ledblink(GREENLED);
+  } else {
+    Serial.println("not connected");
+    ledblink(REDLED);
+  }
+}
+
+void setup()
+{
+  int i;
+
+  Serial.begin(9600);
+
+  infoled_setup();
+  setup_display();
+  setup_sensors();
+
+  display.clearDisplay();
+  display.setCursor(0, 40);
+  display.setTextSize(4);
+  display.setTextColor(SSD1306_WHITE);
+  display.print("+29");
+  display.print((char)274);
+  display.print("C");
+  //display.drawChar(0, 0, 'x', AGFX_RED, AGFX_WHITE, 1);
+  display.fillRect(0, 0, 64, 20, AGFX_RED);
+  display.display();
+
+  for (i=0; i<display_width; i+=4) {
+    display.drawLine(0, display_height-1, i, 0, SSD1306_WHITE);
+    display.display();
+    delay(1);
+  }
+
+  /*  wifi_essids_setup();
+      turn_off_pins();
+      sensors.begin();
+
+    //  WiFi.persistent(false); //disables the storage to flash.
+
+      WiFi.mode(WIFI_STA);
+
+      if (WiFi.status() != WL_CONNECTED) {
+        WiFi.begin();
+      }
+
+      delay(100);
+
+      if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("start: not connected");
+        find_wifi();
+      } else {
+        Serial.println("start: connected");
+      }
+
+      Serial.println(WiFi.macAddress());
+
+      //list_networks();
+
+      delay(1000);
+
+      do_stuff();
+
+    #ifdef DOSLEEP
+      ESP.deepSleep(59000000);
+    #endif
+    */
+
+  // If you want to launch the config AP at setup (e.g. for initial configuration),
+  // uncomment the following line. It will block until user submits the form.
+  // startConfigPortal();
+}
+
+void loop()
+{
+  //do_stuff();
+  show_sensors();
+
+  analogWrite(REDLED,   random(256));
+  analogWrite(GREENLED, random(256));
+  analogWrite(BLUELED,  random(256));
+  get_sensors();
+
+  delay(1000); // keep the color 1 second
+}
